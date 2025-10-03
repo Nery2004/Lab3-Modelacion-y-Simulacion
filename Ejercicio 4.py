@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
 # Cargar los datos
-# Asumiendo que el archivo datos.lab3.csv tiene dos columnas: x y y
-data = pd.read_csv('datos.lab3.csv')
+# Asumiendo que el archivo datos_lab3.csv tiene dos columnas: x y y
+data = pd.read_csv('datos_lab3.csv')
 x = data['x'].values
 y = data['y'].values
 n = len(x)
