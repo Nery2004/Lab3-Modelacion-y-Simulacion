@@ -1,14 +1,29 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
+from pathlib import Path
 
-# Cargar los datos
-# Asumiendo que el archivo datos_lab3.csv tiene dos columnas: x y y
-data = pd.read_csv('datos_lab3.csv')
-x = data['x'].values
-y = data['y'].values
-n = len(x)
+"""
+Problema: Ajustar el modelo
+    f(x) = β0 + β1 x + β2 x² + β3 sin(7x) + β4 sin(13x)
+minimizando la función
+    E_λ(β) = Σ (f(x_i) - y_i)^2 + λ Σ (f(x_{i+1}) - f(x_i))^2.
+
+Implementación: resolvemos en forma cerrada con álgebra lineal (sin SciPy).
+"""
+
+# Cargar los datos (x, y) desde 'datos_lab3.csv'.
+# Se asume que el CSV está en la misma carpeta que este script y contiene columnas 'x' y 'y'.
+csv_path = Path(__file__).resolve().parent / 'datos_lab3.csv'
+data = pd.read_csv(csv_path)
+x = data['x'].to_numpy(dtype=float)
+y = data['y'].to_numpy(dtype=float)
+
+# Ordenar por x para que el término de diferencias f(x_{i+1})-f(x_i) tenga sentido temporal
+order = np.argsort(x)
+x = x[order]
+y = y[order]
+n = x.size
 
 # Definir la función del modelo
 def model(x, beta):
@@ -18,56 +33,53 @@ def model(x, beta):
     return (beta[0] + beta[1]*x + beta[2]*x**2 + 
             beta[3]*np.sin(7*x) + beta[4]*np.sin(13*x))
 
-# Definir la función de error regularizada Eλ(β)
-def error_function(beta, lambda_val, x, y):
-    """
-    Eλ(β) = Σ(y_pred - y)^2 + λ*Σ(f(x_{i+1}) - f(x_i))^2
-    """
-    # Calcular predicciones
-    y_pred = model(x, beta)
-    
-    # Error de ajuste (primer término)
-    error_fit = np.sum((y_pred - y)**2)
-    
-    # Error de regularización (segundo término)
-    # Calcular diferencias entre predicciones consecutivas
-    diff_pred = np.diff(y_pred)
-    error_reg = np.sum(diff_pred**2)
-    
-    # Error total
-    total_error = error_fit + lambda_val * error_reg
-    
-    return total_error
+def design_matrix(x: np.ndarray) -> np.ndarray:
+    """Matriz de diseño Φ = [1, x, x², sin(7x), sin(13x)]."""
+    return np.column_stack([
+        np.ones_like(x),
+        x,
+        x**2,
+        np.sin(7 * x),
+        np.sin(13 * x),
+    ])
+
+
+def difference_matrix(n: int) -> np.ndarray:
+    """Matriz D de primeras diferencias de tamaño (n-1) x n: (Dz)_i = z_{i+1} - z_i."""
+    if n < 2:
+        return np.zeros((0, n))
+    D = np.zeros((n - 1, n))
+    i = np.arange(n - 1)
+    D[i, i] = -1.0
+    D[i, i + 1] = 1.0
+    return D
 
 # Función para resolver el problema de optimización
-def solve_regression(lambda_val, x, y, initial_guess=None):
+def solve_regression(lambda_val: float, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Resuelve en forma cerrada:
+    min_β ||Φβ - y||² + λ ||D Φβ||²  =>  (ΦᵀΦ + λ Φᵀ Dᵀ D Φ) β = Φᵀ y
     """
-    Resuelve el problema de optimización para un valor dado de λ
-    """
-    if initial_guess is None:
-        initial_guess = np.zeros(5)  # β0, β1, β2, β3, β4
-    
-    # Función objetivo para el optimizador
-    def objective(beta):
-        return error_function(beta, lambda_val, x, y)
-    
-    # Optimizar usando método BFGS
-    result = minimize(objective, initial_guess, method='BFGS')
-    
-    if result.success:
-        return result.x
-    else:
-        raise ValueError(f"Optimización falló para λ={lambda_val}: {result.message}")
+    Phi = design_matrix(x)  # n x 5
+    D = difference_matrix(x.size)  # (n-1) x n
+
+    A = Phi.T @ Phi
+    if lambda_val != 0 and D.size > 0:
+        A = A + lambda_val * (Phi.T @ (D.T @ (D @ Phi)))
+    b = Phi.T @ y
+
+    # Resolver de forma estable (mínimos cuadrados por si A es mal condicionada)
+    beta, *_ = np.linalg.lstsq(A, b, rcond=None)
+    return beta
 
 # Resolver para los tres casos
 print("Resolviendo para λ=0...")
-beta_0 = solve_regression(0, x, y)
+beta_0 = solve_regression(0.0, x, y)
 
 print("Resolviendo para λ=100...")
-beta_100 = solve_regression(100, x, y, beta_0)
+beta_100 = solve_regression(100.0, x, y)
 
 print("Resolviendo para λ=500...")
-beta_500 = solve_regression(500, x, y, beta_100)
+beta_500 = solve_regression(500.0, x, y)
 
 # Crear puntos para graficar las curvas (más densos para suavidad)
 x_plot = np.linspace(min(x), max(x), 1000)
